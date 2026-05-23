@@ -15,6 +15,7 @@ export default class PageIndexPlugin extends Plugin {
 
   async onload() {
     await this.loadSettings();
+    this.patchModuleResolver();
 
     this.registerView(CHAT_VIEW_TYPE, (leaf) => new ChatView(leaf, this));
 
@@ -51,6 +52,44 @@ export default class PageIndexPlugin extends Plugin {
 
   onunload() {
     this.app.workspace.detachLeavesOfType(CHAT_VIEW_TYPE);
+  }
+
+  // ── Module resolver patch ──────────────────────────────────────────────────
+  // Electron's renderer require() resolves modules from the app directory, not
+  // the plugin folder. We patch Module._resolveFilename here — after onload()
+  // gives us the vault's base path — so that pdf-parse and js-tiktoken resolve
+  // from this plugin's own node_modules. The library uses lazy requires for
+  // both, so this patch is always in place before the first require fires.
+
+  private patchModuleResolver(): void {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const Module = require('module') as {
+        _resolveFilename: (id: string, parent: unknown, isMain: boolean, opts: unknown) => string;
+      };
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const nodePath = require('path') as typeof import('path');
+
+      const basePath = (this.app.vault.adapter as { getBasePath?: () => string }).getBasePath?.() ?? '';
+      if (!basePath) return;
+
+      const pluginNodeModules = nodePath.join(
+        basePath, '.obsidian', 'plugins', this.manifest.id, 'node_modules',
+      );
+      const targets: Record<string, true> = { 'pdf-parse': true, 'js-tiktoken': true };
+      const orig = Module._resolveFilename;
+
+      Module._resolveFilename = function (id, parent, isMain, opts) {
+        try { return orig.call(this, id, parent, isMain, opts); }
+        catch (e) {
+          if (targets[id]) {
+            try { return orig.call(this, nodePath.join(pluginNodeModules, id), parent, isMain, opts); }
+            catch { /* fall through */ }
+          }
+          throw e;
+        }
+      };
+    } catch { /* non-fatal */ }
   }
 
   // ── Settings ───────────────────────────────────────────────────────────────

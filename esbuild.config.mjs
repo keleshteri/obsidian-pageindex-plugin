@@ -13,12 +13,31 @@ const prod = process.argv[2] === "production";
 // Fix: hook Module._resolveFilename so that when a module isn't found by the
 // default resolver, we retry with an absolute path into the plugin's node_modules.
 // __filename is the plugin's main.js path (set by Node.js when Obsidian loads it).
+// Banner injected at the top of main.js.
+//
+// Primary fix: the plugin's onload() calls patchModuleResolver() with the
+// correct path from getBasePath(). This banner is a belt-and-suspenders
+// early-boot guard for any require that fires before onload() runs.
+//
+// Electron's renderer sets __filename to 'electron/js2c/renderer_init' so we
+// prefer module.filename (the loaded file's own path) which IS set correctly.
 const PLUGIN_REQUIRE_BANNER = `
 (function () {
   try {
     var _M = require("module");
     var _p = require("path");
-    var _dir = typeof __filename !== "undefined" ? _p.dirname(__filename) : null;
+    var _dir = null;
+    // Prefer module.filename — set by Node.js module loader to this file's path.
+    if (typeof module !== "undefined" && module.filename &&
+        module.filename.indexOf("renderer_init") === -1 &&
+        module.filename.indexOf("plugins") !== -1) {
+      _dir = _p.dirname(module.filename);
+    }
+    // Fallback: __filename (may be wrong in some Electron builds)
+    if (!_dir && typeof __filename !== "undefined" &&
+        __filename.indexOf("renderer_init") === -1) {
+      _dir = _p.dirname(__filename);
+    }
     if (!_dir) return;
     var _nm = _p.join(_dir, "node_modules");
     var _targets = { "pdf-parse": true, "js-tiktoken": true };

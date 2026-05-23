@@ -16,6 +16,6 @@
     "typescript": "^5.8.0"
   },
   "dependencies": {
-    "@keleshteri/pageindex-rag": "^1.0.1"
+    "@keleshteri/pageindex-rag": "file:../PageIndexRAG/keleshteri-pageindex-rag-1.0.2.tgz"
   }
 }
