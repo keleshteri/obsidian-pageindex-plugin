@@ -89,6 +89,19 @@ export default class PageIndexPlugin extends Plugin {
           throw e;
         }
       };
+
+      // Pre-load pdf.js and disable web-worker mode. In Electron's renderer,
+      // window + Worker are defined, so pdf.js tries to spawn a worker and
+      // throws "No PDFJS.workerSrc specified". Setting disableWorker=true
+      // before pdf-parse first requires this module (which caches it) means
+      // pdf-parse always gets the already-configured object from the cache.
+      try {
+        const pdfJsPath = nodePath.join(
+          pluginNodeModules, 'pdf-parse', 'lib', 'pdf.js', 'v1.10.100', 'build', 'pdf.js',
+        );
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        (require(pdfJsPath) as { disableWorker?: boolean }).disableWorker = true;
+      } catch { /* pdf-parse not installed — PDF indexing will fail gracefully */ }
     } catch { /* non-fatal */ }
   }
 
