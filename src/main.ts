@@ -1,7 +1,7 @@
-import { Plugin, WorkspaceLeaf, Notice, TFile, addIcon } from 'obsidian';
+import { Plugin, Notice, TFile } from 'obsidian';
 import { PageIndexSettings, DEFAULT_SETTINGS, PageIndexSettingTab } from './settings';
 import { ChatView, CHAT_VIEW_TYPE } from './views/ChatView';
-import { indexMdFile, indexPdfFile } from './indexer';
+import { indexMdFile, indexPdfFile, type PdfIndexResult } from './indexer';
 import {
   loadRegistry,
   saveDocument,

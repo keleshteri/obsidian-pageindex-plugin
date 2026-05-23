@@ -1,6 +1,14 @@
 import { pageIndex, mdToTree } from '@keleshteri/pageindex-rag';
-import type { IndexResult, MdIndexResult } from '@keleshteri/pageindex-rag';
+import type { MdIndexResult, TreeNode } from '@keleshteri/pageindex-rag';
 import type { PageIndexSettings } from './settings';
+
+export interface PdfIndexResult {
+  doc_name: string;
+  doc_description?: string;
+  structure: TreeNode[];
+  page_count?: number;
+  pages?: Array<{ page: number; content: string }>;
+}
 
 // ── LLM configuration ──────────────────────────────────────────────────────────
 // The library resolves its LLM provider from process.env + model name prefix.
@@ -69,16 +77,19 @@ export async function indexPdfFile(
   absolutePath: string,
   settings: PageIndexSettings,
   onProgress?: (msg: string) => void,
-): Promise<IndexResult> {
+): Promise<PdfIndexResult> {
   applyEnvVars(settings);
   const model = resolveModel(settings);
 
   onProgress?.('Parsing PDF — detecting TOC and structure (may take a few minutes)...');
-  return pageIndex(absolutePath, {
+  const result = await pageIndex(absolutePath, {
     model,
     ifAddNodeSummary: settings.addSummary,
     ifAddDocDescription: settings.addDescription,
     ifAddNodeText: settings.addText,
     ifAddNodeId: true,
   });
+
+  // pageIndex returns IndexResult; cast to PdfIndexResult to surface page data if present
+  return result as PdfIndexResult;
 }
