@@ -90,35 +90,53 @@ export default class PageIndexPlugin extends Plugin {
         }
       };
 
-      // Disable pdf.js web worker for Electron renderer.
+      // Fix pdf.js v1.10.100 web-worker errors in Electron's renderer.
       //
-      // pdf.js v1.10.100 (used by pdf-parse) reads disableWorker from window.PDFJS,
-      // not from its module export. require(pdfJsPath) returns the bundle's export
-      // wrapper {PDFJS, getDocument, ...} — NOT window.PDFJS itself.
+      // Electron has both window and Worker defined, so pdf.js thinks it's a browser.
+      // Two errors can occur without this fix:
       //
-      // Strategy:
-      //   1. Set window.PDFJS.disableWorker = true BEFORE loading pdf.js —
-      //      pdf.js line 14227 does `PDFJS.disableWorker = PDFJS.disableWorker === undefined ? false : PDFJS.disableWorker`
-      //      so our truthy value survives (only resets when undefined).
-      //   2. Pre-load pdf.js into the require cache so pdf-parse gets the same instance.
-      //   3. Set window.PDFJS.disableWorker = true again after load as belt-and-suspenders.
+      //   a) PDFWorker._initialize() checks `!disableWorker && typeof Worker !== 'undefined'`
+      //      then calls getWorkerSrc() → throws "No PDFJS.workerSrc specified".
+      //
+      //   b) Even with disableWorker=true, _setupFakeWorker() → setupFakeWorkerGlobal()
+      //      also calls getWorkerSrc() (via Util.loadScript) when fakeWorkerFilesLoader is null.
+      //      fakeWorkerFilesLoader stays null when require.ensure is not defined at pdf.js load time.
+      //
+      // Two-part fix:
+      //   1. Set window.PDFJS.disableWorker=true so _initialize() skips to _setupFakeWorker().
+      //      pdf.js line 14227: `PDFJS.disableWorker = PDFJS.disableWorker === undefined ? false : PDFJS.disableWorker`
+      //      so a truthy pre-set survives initialization.
+      //
+      //   2. Polyfill require.ensure BEFORE loading pdf.js. pdf.js line 3335:
+      //      `else if (typeof require.ensure === 'function') { useRequireEnsure = true }`
+      //      → fakeWorkerFilesLoader = function(cb) { require.ensure([], () => { require('./pdf.worker.js'); cb(...) }) }
+      //      Our polyfill calls fn() synchronously, require('./pdf.worker.js') loads the worker
+      //      CJS module directly — no workerSrc URL or DOM script injection needed.
       try {
+        // Part 1: disable the real Worker path
         if (typeof window !== 'undefined') {
-          (window as Window & { PDFJS?: Record<string, unknown> }).PDFJS =
-            (window as any).PDFJS ?? {};
+          (window as any).PDFJS = (window as any).PDFJS ?? {};
           (window as any).PDFJS.disableWorker = true;
         }
+        // Part 2: polyfill require.ensure before pdf.js initialises
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (typeof (require as any).ensure !== 'function') {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (require as any).ensure = (_deps: unknown[], fn: () => void) => fn();
+        }
+        // Pre-load pdf.js so fakeWorkerFilesLoader is configured during module init
+        // and the module is in the require cache for when pdf-parse later requires it.
         const pdfJsPath = nodePath.join(
           pluginNodeModules, 'pdf-parse', 'lib', 'pdf.js', 'v1.10.100', 'build', 'pdf.js',
         );
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         require(pdfJsPath);
-        // Re-assert after load in case pdf.js reset it.
+        // Re-assert disableWorker after load in case pdf.js line 14227 reset it to false.
         if (typeof window !== 'undefined' && (window as any).PDFJS) {
           (window as any).PDFJS.disableWorker = true;
         }
       } catch (e) {
-        console.warn('[PageIndex] pdf.js pre-load failed:', e);
+        console.warn('[PageIndex] pdf.js worker setup failed:', e);
       }
     } catch { /* non-fatal */ }
   }
