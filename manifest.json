@@ -1,0 +1,10 @@
+{
+  "id": "pageindex-rag",
+  "name": "PageIndex RAG",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Index PDFs and Markdown files with LLM-powered hierarchical indexing and chat with your documents. Supports Anthropic, OpenAI, Ollama, LM Studio, Claude CLI, and Codex CLI.",
+  "author": "MMS Keleshteri",
+  "authorUrl": "https://github.com/keleshteri",
+  "isDesktopOnly": true
+}
