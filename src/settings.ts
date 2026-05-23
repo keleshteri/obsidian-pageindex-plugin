@@ -17,8 +17,6 @@ export interface PageIndexSettings {
   claudeCliPath: string;
   codexCliPath: string;
 
-  pageindexRagPath: string;
-
   addSummary: boolean;
   addDescription: boolean;
   addText: boolean;
@@ -38,7 +36,6 @@ export const DEFAULT_SETTINGS: PageIndexSettings = {
   lmStudioBaseUrl: 'http://localhost:1234',
   claudeCliPath: 'claude',
   codexCliPath: 'codex',
-  pageindexRagPath: '',
   addSummary: true,
   addDescription: false,
   addText: false,
@@ -200,18 +197,9 @@ export class PageIndexSettingTab extends PluginSettingTab {
     // ── PDF Support ───────────────────────────────────────────────────────────
     containerEl.createEl('h3', { text: 'PDF Support' });
     containerEl.createEl('p', {
-      text: 'PDF indexing requires the PageIndexRAG library installed on your system. Set the path to your installation.',
+      text: 'PDF indexing is built-in — no extra setup needed. Open any .pdf file in Obsidian and run "PageIndex: Index current file".',
       cls: 'setting-item-description',
     });
-
-    new Setting(containerEl)
-      .setName('PageIndexRAG path')
-      .setDesc('Absolute path to your PageIndexRAG installation (e.g. D:\\personal-projects\\PageIndexRAG)')
-      .addText(t => t
-        .setPlaceholder('D:\\personal-projects\\PageIndexRAG')
-        .setValue(this.plugin.settings.pageindexRagPath)
-        .onChange(async (v) => { this.plugin.settings.pageindexRagPath = v; await this.plugin.saveSettings(); }),
-      );
 
     // ── Indexing Options ──────────────────────────────────────────────────────
     containerEl.createEl('h3', { text: 'Indexing Options' });

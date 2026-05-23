@@ -1,8 +1,7 @@
 import { Plugin, WorkspaceLeaf, Notice, TFile, addIcon } from 'obsidian';
 import { PageIndexSettings, DEFAULT_SETTINGS, PageIndexSettingTab } from './settings';
 import { ChatView, CHAT_VIEW_TYPE } from './views/ChatView';
-import { indexMarkdown } from './md-indexer';
-import { indexPdf } from './pdf-indexer';
+import { indexMdFile, indexPdfFile } from './indexer';
 import {
   loadRegistry,
   saveDocument,
@@ -129,10 +128,11 @@ export default class PageIndexPlugin extends Plugin {
   }
 
   private async indexMdFile(file: TFile) {
-    const content = await this.app.vault.read(file);
+    const basePath = (this.app.vault.adapter as { getBasePath?: () => string }).getBasePath?.() ?? '';
+    const absolutePath = `${basePath}/${file.path}`.replace(/\\/g, '/');
     const docName = file.basename;
 
-    const result = await indexMarkdown(content, docName, this.settings, (msg) => {
+    const result = await indexMdFile(absolutePath, this.settings, (msg) => {
       console.log(`[PageIndex] ${msg}`);
     });
 
@@ -155,17 +155,10 @@ export default class PageIndexPlugin extends Plugin {
   }
 
   private async indexPdfFile(file: TFile) {
-    if (!this.settings.pageindexRagPath) {
-      throw new Error(
-        'PDF indexing requires the PageIndexRAG path to be set in plugin settings. ' +
-        'Go to Settings → PageIndex RAG → PDF Support.',
-      );
-    }
+    const basePath = (this.app.vault.adapter as { getBasePath?: () => string }).getBasePath?.() ?? '';
+    const absolutePath = `${basePath}/${file.path}`.replace(/\\/g, '/');
 
-    const absolutePath = (this.app.vault.adapter as { getBasePath?: () => string }).getBasePath?.() ?? '';
-    const fullPath = `${absolutePath}/${file.path}`.replace(/\\/g, '/');
-
-    const result = await indexPdf(fullPath, file.basename, this.settings, (msg) => {
+    const result = await indexPdfFile(absolutePath, this.settings, (msg) => {
       console.log(`[PageIndex] ${msg}`);
     });
 

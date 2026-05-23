@@ -10,6 +10,10 @@ const context = await esbuild.context({
   external: [
     "obsidian",
     "electron",
+    // These two ship binary/WASM assets loaded via __dirname-relative paths.
+    // They must stay as real node_modules alongside main.js in the plugin folder.
+    "pdf-parse",
+    "js-tiktoken",
     "@codemirror/autocomplete",
     "@codemirror/collab",
     "@codemirror/commands",
