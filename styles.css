@@ -43,32 +43,40 @@
   color: var(--text-normal);
 }
 
-/* ── Document selector ───────────────────────────────────────────────────────── */
+/* ── Index status ────────────────────────────────────────────────────────────── */
 
-.pageindex-selector-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+.pageindex-doc-count {
+  padding: 5px 12px;
+  font-size: 0.78em;
+  color: var(--text-muted);
   border-bottom: 1px solid var(--background-modifier-border);
   flex-shrink: 0;
 }
 
-.pageindex-selector-label {
-  font-size: 0.8em;
-  color: var(--text-muted);
-  white-space: nowrap;
+.pageindex-doc-count-empty {
+  color: var(--text-warning, #e8a317);
 }
 
-.pageindex-doc-select {
-  flex: 1;
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  color: var(--text-normal);
-  padding: 4px 8px;
-  font-size: 0.85em;
-  min-width: 0;
+/* ── Sources ─────────────────────────────────────────────────────────────────── */
+
+.pageindex-sources {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--background-modifier-border);
+  font-size: 0.8em;
+}
+
+.pageindex-sources-label {
+  color: var(--text-muted);
+}
+
+.pageindex-source-link {
+  color: var(--link-color, var(--interactive-accent));
+  text-decoration: none;
+}
+
+.pageindex-source-link:hover {
+  text-decoration: underline;
 }
 
 /* ── Messages ────────────────────────────────────────────────────────────────── */

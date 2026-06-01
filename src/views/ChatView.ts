@@ -1,9 +1,8 @@
 import { ItemView, WorkspaceLeaf, Notice, setIcon } from 'obsidian';
 import type PageIndexPlugin from '../main';
-import type { ChatMessage, IndexedDoc } from '../types';
-import type { LLMMessage } from '../providers';
-import { loadRegistry, loadDocument } from '../workspace';
-import { answerQuestion } from '../retrieval';
+import type { ChatMessage } from '../types';
+import { loadRegistry } from '../workspace';
+import { VaultQueryEngine, type QueryResult } from '../query-engine';
 
 export const CHAT_VIEW_TYPE = 'pageindex-chat';
 
@@ -11,12 +10,9 @@ export class ChatView extends ItemView {
   private plugin: PageIndexPlugin;
   private messagesEl!: HTMLElement;
   private inputEl!: HTMLTextAreaElement;
-  private docSelect!: HTMLSelectElement;
   private statusEl!: HTMLElement;
   private sendBtn!: HTMLButtonElement;
-
-  private history: LLMMessage[] = [];
-  private currentDoc: IndexedDoc | null = null;
+  private docCountEl!: HTMLElement;
 
   constructor(leaf: WorkspaceLeaf, plugin: PageIndexPlugin) {
     super(leaf);
@@ -40,15 +36,12 @@ export class ChatView extends ItemView {
     setIcon(clearBtn, 'eraser');
     clearBtn.addEventListener('click', () => this.clearChat());
 
-    const refreshBtn = header.createEl('button', { cls: 'pageindex-icon-btn', title: 'Refresh document list' });
+    const refreshBtn = header.createEl('button', { cls: 'pageindex-icon-btn', title: 'Refresh index count' });
     setIcon(refreshBtn, 'refresh-cw');
-    refreshBtn.addEventListener('click', () => this.refreshDocList());
+    refreshBtn.addEventListener('click', () => this.refreshDocCount());
 
-    // ── Document selector ─────────────────────────────────────────────────────
-    const selectorRow = root.createDiv('pageindex-selector-row');
-    selectorRow.createEl('label', { text: 'Document:', cls: 'pageindex-selector-label' });
-    this.docSelect = selectorRow.createEl('select', { cls: 'pageindex-doc-select' });
-    this.docSelect.addEventListener('change', () => this.onDocChange());
+    // ── Index status ──────────────────────────────────────────────────────────
+    this.docCountEl = root.createDiv('pageindex-doc-count');
 
     // ── Messages ──────────────────────────────────────────────────────────────
     this.messagesEl = root.createDiv('pageindex-messages');
@@ -61,7 +54,7 @@ export class ChatView extends ItemView {
     const inputArea = root.createDiv('pageindex-input-area');
     this.inputEl = inputArea.createEl('textarea', {
       cls: 'pageindex-input',
-      attr: { placeholder: 'Ask a question about this document...', rows: '3' },
+      attr: { placeholder: 'Ask anything about your vault...', rows: '3' },
     });
     this.inputEl.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -70,55 +63,28 @@ export class ChatView extends ItemView {
       }
     });
 
-    this.sendBtn = inputArea.createEl('button', { text: 'Send', cls: 'pageindex-send-btn' });
+    this.sendBtn = inputArea.createEl('button', { text: 'Ask', cls: 'pageindex-send-btn' });
     this.sendBtn.addEventListener('click', () => this.sendMessage());
 
-    const hint = inputArea.createEl('div', { text: 'Ctrl+Enter to send', cls: 'pageindex-hint' });
+    inputArea.createEl('div', { text: 'Ctrl+Enter to send', cls: 'pageindex-hint' });
 
-    await this.refreshDocList();
-    this.addWelcomeMessage();
+    await this.refreshDocCount();
   }
 
   async onClose() { /* nothing to clean up */ }
 
-  // ── Document list ──────────────────────────────────────────────────────────
+  // ── Index status ───────────────────────────────────────────────────────────
 
-  private async refreshDocList() {
+  private async refreshDocCount() {
     const registry = await loadRegistry(this.app, this.plugin.settings.workspaceFolder);
-    this.docSelect.empty();
+    const count = registry.documents.length;
 
-    if (registry.documents.length === 0) {
-      const opt = this.docSelect.createEl('option', { text: '— No indexed documents —' });
-      opt.disabled = true;
-      this.currentDoc = null;
-      return;
-    }
-
-    const placeholder = this.docSelect.createEl('option', { text: 'Select a document...' });
-    placeholder.value = '';
-
-    for (const doc of registry.documents) {
-      const opt = this.docSelect.createEl('option', { text: doc.doc_name, value: doc.id });
-    }
-
-    // Auto-select if only one document
-    if (registry.documents.length === 1) {
-      this.docSelect.value = registry.documents[0].id;
-      await this.onDocChange();
-    }
-  }
-
-  private async onDocChange() {
-    const id = this.docSelect.value;
-    if (!id) { this.currentDoc = null; return; }
-
-    this.setStatus('Loading document index...');
-    this.currentDoc = await loadDocument(this.app, this.plugin.settings.workspaceFolder, id);
-    this.clearStatus();
-    this.clearChat();
-
-    if (this.currentDoc) {
-      this.addSystemMessage(`Loaded **${this.currentDoc.doc_name}**. Ask me anything about it.`);
+    if (count === 0) {
+      this.docCountEl.setText('No documents indexed — run "Index all Markdown files" first.');
+      this.docCountEl.addClass('pageindex-doc-count-empty');
+    } else {
+      this.docCountEl.setText(`Searching across ${count} indexed document${count === 1 ? '' : 's'}`);
+      this.docCountEl.removeClass('pageindex-doc-count-empty');
     }
   }
 
@@ -127,40 +93,19 @@ export class ChatView extends ItemView {
   private async sendMessage() {
     const text = this.inputEl.value.trim();
     if (!text) return;
-    if (!this.currentDoc) {
-      new Notice('Select an indexed document first.');
-      return;
-    }
 
     this.inputEl.value = '';
     this.setInputEnabled(false);
-
-    this.appendMessage({ role: 'user', content: text, timestamp: Date.now() });
+    this.appendUserMessage(text);
 
     try {
-      const answer = await answerQuestion(
-        text,
-        this.currentDoc,
-        this.history,
-        this.plugin.settings,
-        (msg) => this.setStatus(msg),
-      );
-
-      this.history.push({ role: 'user', content: text });
-      this.history.push({ role: 'assistant', content: answer });
-
-      // Keep last 10 turns to avoid context bloat
-      if (this.history.length > 20) this.history = this.history.slice(-20);
-
-      this.appendMessage({ role: 'assistant', content: answer, timestamp: Date.now() });
+      const engine = new VaultQueryEngine(this.app, this.plugin.settings);
+      const result = await engine.query(text, (msg) => this.setStatus(msg));
+      this.appendAnswer(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.appendMessage({
-        role: 'assistant',
-        content: `Error: ${msg}`,
-        timestamp: Date.now(),
-      });
-      new Notice(`PageIndex chat error: ${msg}`);
+      this.appendMessage({ role: 'assistant', content: `Error: ${msg}`, timestamp: Date.now() });
+      new Notice(`PageIndex error: ${msg}`);
     } finally {
       this.clearStatus();
       this.setInputEnabled(true);
@@ -168,26 +113,51 @@ export class ChatView extends ItemView {
     }
   }
 
-  private appendMessage(msg: ChatMessage) {
-    const wrap = this.messagesEl.createDiv(`pageindex-msg pageindex-msg-${msg.role}`);
-
+  private appendUserMessage(text: string) {
+    const wrap = this.messagesEl.createDiv('pageindex-msg pageindex-msg-user');
     const avatar = wrap.createDiv('pageindex-msg-avatar');
-    setIcon(avatar, msg.role === 'user' ? 'user' : 'bot');
+    setIcon(avatar, 'user');
+    const bubble = wrap.createDiv('pageindex-msg-bubble');
+    bubble.innerHTML = this.renderContent(text);
+    this.messagesEl.scrollTo({ top: this.messagesEl.scrollHeight, behavior: 'smooth' });
+  }
+
+  private appendAnswer(result: QueryResult) {
+    const wrap = this.messagesEl.createDiv('pageindex-msg pageindex-msg-assistant');
+    const avatar = wrap.createDiv('pageindex-msg-avatar');
+    setIcon(avatar, 'bot');
 
     const bubble = wrap.createDiv('pageindex-msg-bubble');
-    // Render markdown-like content (simple line breaks and bold)
-    bubble.innerHTML = this.renderContent(msg.content);
+    bubble.innerHTML = this.renderContent(result.answer);
+
+    if (result.sources.length > 0) {
+      const sourcesEl = bubble.createDiv('pageindex-sources');
+      sourcesEl.createEl('span', { text: 'Sources: ', cls: 'pageindex-sources-label' });
+
+      result.sources.forEach((s, i) => {
+        if (i > 0) sourcesEl.createSpan({ text: ' · ' });
+        const link = sourcesEl.createEl('a', {
+          text: s.docName,
+          cls: 'pageindex-source-link',
+          href: '#',
+        });
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          this.app.workspace.openLinkText(s.path, '', false);
+        });
+      });
+    }
 
     this.messagesEl.scrollTo({ top: this.messagesEl.scrollHeight, behavior: 'smooth' });
   }
 
-  private addSystemMessage(text: string) {
-    const wrap = this.messagesEl.createDiv('pageindex-msg pageindex-msg-system');
-    wrap.createEl('em', { text });
-  }
-
-  private addWelcomeMessage() {
-    this.addSystemMessage('Select an indexed document above to start chatting.');
+  private appendMessage(msg: ChatMessage) {
+    const wrap = this.messagesEl.createDiv(`pageindex-msg pageindex-msg-${msg.role}`);
+    const avatar = wrap.createDiv('pageindex-msg-avatar');
+    setIcon(avatar, msg.role === 'user' ? 'user' : 'bot');
+    const bubble = wrap.createDiv('pageindex-msg-bubble');
+    bubble.innerHTML = this.renderContent(msg.content);
+    this.messagesEl.scrollTo({ top: this.messagesEl.scrollHeight, behavior: 'smooth' });
   }
 
   private renderContent(text: string): string {
@@ -203,7 +173,6 @@ export class ChatView extends ItemView {
 
   private clearChat() {
     this.messagesEl.empty();
-    this.history = [];
   }
 
   // ── UI helpers ─────────────────────────────────────────────────────────────
@@ -221,6 +190,6 @@ export class ChatView extends ItemView {
   private setInputEnabled(enabled: boolean) {
     this.inputEl.disabled = !enabled;
     this.sendBtn.disabled = !enabled;
-    this.sendBtn.setText(enabled ? 'Send' : 'Thinking...');
+    this.sendBtn.setText(enabled ? 'Ask' : 'Thinking...');
   }
 }
